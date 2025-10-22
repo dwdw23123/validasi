@@ -40,11 +40,11 @@ export function parseEndpointOutput(input: string): EndpointData | null {
       if (node1 >= 400) {
         pod = 'pod-2';
       } else if (node1 >= 300) {
-        pod = 'pod-1';
+        pod = 'pod-2';
       } else if (node1 >= 200) {
         pod = 'pod-2';
       } else {
-        pod = 'pod-1';
+        pod = 'pod-2';
       }
     }
 
@@ -69,7 +69,7 @@ export function parseEndpointOutput(input: string): EndpointData | null {
       vlan,
       ip: '',
       paths: Array.from(pathSet),
-      pod: pod || 'pod-1'
+      pod: pod || 'pod-2'
     };
   }
 
