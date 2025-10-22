@@ -10,6 +10,7 @@ export interface PathAttachment {
   epg: string;
   path: string;
   fullPath: string;
+  pod: string;
 }
 
 export interface ValidationResult {
@@ -23,7 +24,6 @@ export function parseEndpointOutput(input: string): EndpointData | null {
   const lines = input.trim().split('\n');
 
   let vlan = '';
-  let pod = '';
   const pathSet = new Set<string>();
 
   for (const line of lines) {
@@ -31,21 +31,6 @@ export function parseEndpointOutput(input: string): EndpointData | null {
     const vlanMatch = line.match(/vlan-(\d+)/i);
     if (vlanMatch) {
       vlan = vlanMatch[1];
-    }
-
-    // Extract Node to determine pod
-    const nodeMatch = line.match(/Node\s*\n\s*(\d+)\s+(\d+)/);
-    if (nodeMatch) {
-      const node1 = parseInt(nodeMatch[1]);
-      if (node1 >= 400) {
-        pod = 'pod-2';
-      } else if (node1 >= 300) {
-        pod = 'pod-2';
-      } else if (node1 >= 200) {
-        pod = 'pod-2';
-      } else {
-        pod = 'pod-2';
-      }
     }
 
     // Extract VPC paths - support multiple formats
@@ -69,7 +54,7 @@ export function parseEndpointOutput(input: string): EndpointData | null {
       vlan,
       ip: '',
       paths: Array.from(pathSet),
-      pod: pod || 'pod-2'
+      pod: ''
     };
   }
 
@@ -85,30 +70,48 @@ export function parseMoqueryOutput(input: string): PathAttachment[] {
     if (!line.trim()) continue;
 
     // Match protpaths (VPC)
-    let dnMatch = line.match(/dn\s*:\s*uni\/tn-[^\/]+\/ap-[^\/]+\/epg-([^\/]+)\/rspathAtt-\[topology\/(pod-\d+\/protpaths-[\d-]+\/pathep-\[([^\]]+)\])\]/i);
+    let dnMatch = line.match(/dn\s*:\s*uni\/tn-[^\/]+\/ap-[^\/]+\/epg-([^\/]+)\/rspathAtt-\[topology\/(pod-\d+)\/protpaths-[\d-]+\/pathep-\[([^\]]+)\]\]/i);
 
     let isVpc = true;
     // Match single paths (non-VPC)
     if (!dnMatch) {
-      dnMatch = line.match(/dn\s*:\s*uni\/tn-[^\/]+\/ap-[^\/]+\/epg-([^\/]+)\/rspathAtt-\[topology\/(pod-\d+\/paths-[\d]+\/pathep-\[([^\]]+)\])\]/i);
+      dnMatch = line.match(/dn\s*:\s*uni\/tn-[^\/]+\/ap-[^\/]+\/epg-([^\/]+)\/rspathAtt-\[topology\/(pod-\d+)\/paths-[\d]+\/pathep-\[([^\]]+)\]\]/i);
       isVpc = false;
     }
 
     if (dnMatch) {
       const epg = dnMatch[1];
-      const fullPath = dnMatch[2];
-      const pathName = dnMatch[3]; // Captured path name directly
+      const pod = dnMatch[2];
+      const pathName = dnMatch[3];
 
       // Extract VLAN from EPG name
       const vlanMatch = epg.match(/VLAN(\d+)/i);
       const vlan = vlanMatch ? vlanMatch[1] : '';
+
+      // Reconstruct fullPath
+      let fullPath = '';
+      if (isVpc) {
+        const vpcMatch = pathName.match(/(\d+)-(\d+)-VPC/);
+        if (vpcMatch) {
+          const node1 = vpcMatch[1];
+          const node2 = vpcMatch[2];
+          fullPath = `${pod}/protpaths-${node1}-${node2}/pathep-[${pathName}]`;
+        }
+      } else {
+        const singleMatch = pathName.match(/^(\d+)[-\/]/);
+        if (singleMatch) {
+          const node = singleMatch[1];
+          fullPath = `${pod}/paths-${node}/pathep-[${pathName}]`;
+        }
+      }
 
       if (vlan && pathName) {
         attachments.push({
           vlan,
           epg,
           path: pathName,
-          fullPath
+          fullPath,
+          pod
         });
       }
     }
@@ -165,29 +168,34 @@ export function generateCSV(
     .filter(r => r.status === 'not_allowed')
     .map(r => r.path);
 
-  const pathMap = new Map<string, string>();
-  for (const attachment of pathAttachments) {
-    pathMap.set(attachment.path, attachment.fullPath);
-  }
-
   const rows = notAllowedPaths.map(pathName => {
     let fullPath = '';
+    let pod = 'pod-2'; // default fallback
+
+    // Try to find pod from moquery data first
+    const normalizedPathName = normalizePathName(pathName);
+    for (const attachment of pathAttachments) {
+      if (normalizePathName(attachment.path) === normalizedPathName) {
+        pod = attachment.pod;
+        break;
+      }
+    }
 
     // Check if it's a VPC path (format: XXX-YYY-VPC-...)
     const vpcMatch = pathName.match(/(\d+)-(\d+)-VPC/);
     if (vpcMatch) {
       const node1 = vpcMatch[1];
       const node2 = vpcMatch[2];
-      fullPath = `${endpointData.pod}/protpaths-${node1}-${node2}/pathep-[${pathName}]`;
+      fullPath = `${pod}/protpaths-${node1}-${node2}/pathep-[${pathName}]`;
     } else {
       // Single path (format: node-port)
       const singleMatch = pathName.match(/^(\d+)[-\/]/);
       if (singleMatch) {
         const node = singleMatch[1];
-        fullPath = `${endpointData.pod}/paths-${node}/pathep-[${pathName}]`;
+        fullPath = `${pod}/paths-${node}/pathep-[${pathName}]`;
       } else {
         // Fallback
-        fullPath = `${endpointData.pod}/paths-XXX/pathep-[${pathName}]`;
+        fullPath = `${pod}/paths-XXX/pathep-[${pathName}]`;
       }
     }
 

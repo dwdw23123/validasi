@@ -107,22 +107,33 @@ function App() {
           notAllowed.forEach(result => {
             // Generate full path in moquery format
             let fullPath = '';
+            let pod = 'pod-2'; // default fallback
+
+            // Find pod from moquery data
+            const normalizedPathName = result.path.trim().replace(/[\[\]]/g, '').toLowerCase();
+            for (const attachment of pathAttachments) {
+              const attachmentPath = attachment.path.trim().replace(/[\[\]]/g, '').toLowerCase();
+              if (attachmentPath === normalizedPathName) {
+                pod = attachment.pod;
+                break;
+              }
+            }
 
             // Check if it's a VPC path (format: XXX-YYY-VPC-...)
             const vpcMatch = result.path.match(/(\d+)-(\d+)-VPC/);
             if (vpcMatch) {
               const node1 = vpcMatch[1];
               const node2 = vpcMatch[2];
-              fullPath = `${entry.endpointData!.pod}/protpaths-${node1}-${node2}/pathep-[${result.path}]`;
+              fullPath = `${pod}/protpaths-${node1}-${node2}/pathep-[${result.path}]`;
             } else {
               // Single path (format: node-port)
               const singleMatch = result.path.match(/^(\d+)[-\/]/);
               if (singleMatch) {
                 const node = singleMatch[1];
-                fullPath = `${entry.endpointData!.pod}/paths-${node}/pathep-[${result.path}]`;
+                fullPath = `${pod}/paths-${node}/pathep-[${result.path}]`;
               } else {
                 // Fallback
-                fullPath = `${entry.endpointData!.pod}/paths-XXX/pathep-[${result.path}]`;
+                fullPath = `${pod}/paths-XXX/pathep-[${result.path}]`;
               }
             }
 
